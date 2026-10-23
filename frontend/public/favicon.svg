@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="bayoraGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06B6D4" />
+      <stop offset="100%" stop-color="#2563EB" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#2563EB" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <rect width="48" height="48" rx="12" fill="#0F172A"/>
+  <path d="M14 11H26C30.4183 11 34 14.134 34 18C34 20.3551 32.671 22.4285 30.6 23.6C33.2 24.8 35 27.2 35 30C35 34.4183 31.4183 37 27 37H14V11Z" fill="url(#bayoraGrad)" filter="url(#glow)"/>
+  <path d="M19 16H25C26.6569 16 28 17.1193 28 18.5C28 19.8807 26.6569 21 25 21H19V16Z" fill="#0F172A"/>
+  <path d="M19 26H26C27.6569 26 29 27.3431 29 29C29 30.6569 27.6569 32 26 32H19V26Z" fill="#0F172A"/>
+</svg>

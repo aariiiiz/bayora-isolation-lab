@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: bayora-isolation-lab
+    env: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PROJECT_NAME
+        value: "Bayora Isolation Lab"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: "llama-3.3-70b-versatile"
