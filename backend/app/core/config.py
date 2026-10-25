@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # AI Threat Intel / Deep Remediation (Groq integration)
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "llama-3.1-8b-instant"
 
     class Config:
         env_file = ".env"
