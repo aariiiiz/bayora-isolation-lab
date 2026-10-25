@@ -138,39 +138,45 @@ def verify_audit_chain(events: list, checkpoint: Optional[Dict[str, Any]] = None
         # 1. Sequence Validation
         if seq is not None:
             if seq in seen_sequences:
+                msg = f"Integrity Failure: Duplicate sequence number {seq} detected at event index {idx} (Event ID: {event_id})."
                 return {
                     "valid": False,
                     "break_detected": True,
                     "broken_index": idx,
                     "event_id": event_id,
                     "failure_category": "DUPLICATE_SEQUENCE_NUMBER",
-                    "reason": f"Duplicate sequence number {seq} detected at index {idx}.",
+                    "reason": msg,
+                    "message": msg,
                     "expected_sequence": last_seq + 1,
                     "actual_sequence": seq,
                     "total_verified": idx,
                     "verification_timestamp": verification_time
                 }
             if seq <= last_seq and idx > 0:
+                msg = f"Integrity Failure: Out-of-order sequence number at event index {idx}. Expected > {last_seq}, found {seq}."
                 return {
                     "valid": False,
                     "break_detected": True,
                     "broken_index": idx,
                     "event_id": event_id,
                     "failure_category": "SEQUENCE_REORDERING",
-                    "reason": f"Out-of-order sequence number at index {idx}. Expected > {last_seq}, got {seq}.",
+                    "reason": msg,
+                    "message": msg,
                     "expected_sequence": last_seq + 1,
                     "actual_sequence": seq,
                     "total_verified": idx,
                     "verification_timestamp": verification_time
                 }
             if idx > 0 and seq != last_seq + 1:
+                msg = f"Integrity Failure: Gap in sequence numbers detected between #{last_seq} and #{seq} at event index {idx}."
                 return {
                     "valid": False,
                     "break_detected": True,
                     "broken_index": idx,
                     "event_id": event_id,
                     "failure_category": "SEQUENCE_GAP",
-                    "reason": f"Missing event detected: gap in sequence numbers between {last_seq} and {seq}.",
+                    "reason": msg,
+                    "message": msg,
                     "expected_sequence": last_seq + 1,
                     "actual_sequence": seq,
                     "total_verified": idx,
@@ -182,13 +188,17 @@ def verify_audit_chain(events: list, checkpoint: Optional[Dict[str, Any]] = None
         # 2. Previous Hash Linkage Validation
         expected_prev = prev_hash
         if actual_prev != expected_prev:
+            msg = f"Integrity Failure: Broken hash chain link at event #{seq or idx} (ID: {event_id}). Expected previous link '{expected_prev}', but record links to '{actual_prev}'."
             return {
                 "valid": False,
                 "break_detected": True,
                 "broken_index": idx,
                 "event_id": event_id,
                 "failure_category": "BROKEN_HASH_LINK",
-                "reason": f"Mismatched prev_hash at event {idx}. Expected {expected_prev}, found {actual_prev}",
+                "reason": msg,
+                "message": msg,
+                "expected_hash": expected_prev,
+                "calculated_hash": actual_prev,
                 "total_verified": idx,
                 "verification_timestamp": verification_time
             }
@@ -206,13 +216,18 @@ def verify_audit_chain(events: list, checkpoint: Optional[Dict[str, Any]] = None
         ]
 
         if actual_hash not in candidate_hashes:
+            expected = candidate_hashes[0]
+            msg = f"Integrity Failure: Stored event payload or hash tampered at event #{seq or idx} (ID: {event_id}). Recomputed SHA-256 is '{expected}', but database contains '{actual_hash}'."
             return {
                 "valid": False,
                 "break_detected": True,
                 "broken_index": idx,
                 "event_id": event_id,
                 "failure_category": "PAYLOAD_TAMPERED",
-                "reason": f"Tampered record payload or invalid hash at event {idx}. Recomputed hash does not match.",
+                "reason": msg,
+                "message": msg,
+                "expected_hash": expected,
+                "calculated_hash": actual_hash,
                 "total_verified": idx,
                 "verification_timestamp": verification_time
             }
@@ -225,21 +240,27 @@ def verify_audit_chain(events: list, checkpoint: Optional[Dict[str, Any]] = None
         chk_seq = checkpoint.get("sequence_number")
         chk_hash = checkpoint.get("record_hash")
         if chk_seq is not None and last_seq < chk_seq:
+            msg = f"Integrity Failure: Database has fewer events ({last_seq}) than trusted external checkpoint ({chk_seq}). Database rollback detected."
             return {
                 "valid": False,
                 "break_detected": True,
                 "failure_category": "CHECKPOINT_ROLLBACK_DETECTED",
-                "reason": f"Database has fewer events ({last_seq}) than trusted checkpoint ({chk_seq}). Possible database rollback.",
+                "reason": msg,
+                "message": msg,
                 "total_verified": len(events),
                 "verification_timestamp": verification_time,
                 "checkpoint_status": {"verified": False, "expected_seq": chk_seq, "db_seq": last_seq}
             }
         if chk_hash and chk_seq == last_seq and chk_hash != prev_hash:
+            msg = f"Integrity Failure: Latest record hash '{prev_hash}' does not match external anchor '{chk_hash}'. Complete database rewrite detected."
             return {
                 "valid": False,
                 "break_detected": True,
                 "failure_category": "CHECKPOINT_HASH_MISMATCH",
-                "reason": "Latest event hash does not match trusted external checkpoint. Complete database rewrite detected.",
+                "reason": msg,
+                "message": msg,
+                "expected_hash": chk_hash,
+                "calculated_hash": prev_hash,
                 "total_verified": len(events),
                 "verification_timestamp": verification_time,
                 "checkpoint_status": {"verified": False, "checkpoint_hash": chk_hash, "db_hash": prev_hash}

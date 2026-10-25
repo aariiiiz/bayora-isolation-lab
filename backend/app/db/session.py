@@ -1,6 +1,10 @@
+from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from app.core.config import settings
+
+def utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # SQLite connection configuration with thread check disabled for FastAPI concurrency
 connect_args = {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
@@ -21,3 +25,4 @@ def get_db():
         yield db
     finally:
         db.close()
+

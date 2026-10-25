@@ -1,8 +1,7 @@
 import uuid
-from datetime import datetime
 from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import relationship
-from app.db.session import Base
+from app.db.session import Base, utcnow
 
 class Finding(Base):
     __tablename__ = "findings"
@@ -19,6 +18,7 @@ class Finding(Base):
     confidence = Column(String(50), default="HIGH", nullable=False)
     limitations = Column(Text, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     experiment = relationship("Experiment", back_populates="findings")
+

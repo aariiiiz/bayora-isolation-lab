@@ -250,3 +250,57 @@ def get_experiment_findings(
 ) -> List[Finding]:
     get_experiment_by_id(db, experiment_id, tenant_id=tenant_id)
     return db.query(Finding).filter(Finding.experiment_id == experiment_id).order_by(Finding.severity).all()
+
+def update_experiment_metadata(
+    db: Session,
+    experiment_id: str,
+    tenant_id: str,
+    data: Dict[str, Any],
+    actor: str,
+    user_id: Optional[str] = None
+) -> Experiment:
+    experiment = get_experiment_by_id(db=db, experiment_id=experiment_id, tenant_id=tenant_id)
+    allowed_fields = ["name", "description", "environment", "profile"]
+    modified = {}
+    for f in allowed_fields:
+        if f in data and data[f] is not None:
+            setattr(experiment, f, data[f])
+            modified[f] = data[f]
+
+    experiment.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    db.refresh(experiment)
+
+    log_audit_event(
+        db=db,
+        event_type="EXPERIMENT_UPDATED",
+        actor=actor,
+        experiment_id=experiment.id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        details={"updated_fields": list(modified.keys()), "experiment_name": experiment.name}
+    )
+    return experiment
+
+def delete_experiment(
+    db: Session,
+    experiment_id: str,
+    tenant_id: str,
+    actor: str,
+    user_id: Optional[str] = None
+) -> None:
+    experiment = get_experiment_by_id(db=db, experiment_id=experiment_id, tenant_id=tenant_id)
+    exp_name = experiment.name
+    db.delete(experiment)
+    db.commit()
+
+    log_audit_event(
+        db=db,
+        event_type="EXPERIMENT_DELETED",
+        actor=actor,
+        experiment_id=experiment_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        details={"deleted_experiment_name": exp_name}
+    )
+

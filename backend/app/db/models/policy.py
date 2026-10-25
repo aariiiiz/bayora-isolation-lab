@@ -1,7 +1,6 @@
 import uuid
-from datetime import datetime
 from sqlalchemy import Column, String, Boolean, Text, DateTime, JSON
-from app.db.session import Base
+from app.db.session import Base, utcnow
 
 class Policy(Base):
     __tablename__ = "policies"
@@ -18,5 +17,6 @@ class Policy(Base):
     parameters = Column(JSON, default=dict)
     is_baseline = Column(Boolean, default=True, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+

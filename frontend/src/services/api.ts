@@ -5,6 +5,7 @@ import {
   Policy,
   AuditEvent,
   AuditVerificationReport,
+  RetestComparisonReport,
   AuthResponse,
   UserProfile,
   SyntheticMatrixReport
@@ -144,6 +145,25 @@ export const api = {
 
   getExperimentReport: (id: string) => request<any>(`/experiments/${id}/report`),
 
+  getRetestComparison: (runId: string, baselineId?: string) => {
+    const q = baselineId ? `?baseline_id=${encodeURIComponent(baselineId)}` : "";
+    return request<RetestComparisonReport>(`/experiments/${runId}/compare${q}`);
+  },
+
+  updateExperiment: (id: string, data: Partial<Experiment>) => {
+    return request<Experiment>(`/experiments/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteExperiment: (id: string) => {
+    return request<{ success: boolean; message: string }>(`/experiments/${id}`, {
+      method: "DELETE",
+    });
+  },
+
   requestAiAdvisory: (id: string) => request<{ experiment_id: string; ai_analysis: string }>(`/experiments/${id}/ai-advise`, {
     method: "POST"
   }),
@@ -158,6 +178,20 @@ export const api = {
   },
 
   verifyAuditChain: () => request<AuditVerificationReport>("/audit-events/verify-chain"),
+
+  simulateAuditTampering: (tamperType: "payload" | "broken_link" | "sequence_gap" = "payload") => {
+    return request<{ success: boolean; message: string; tamper_type: string; event_id: string }>(
+      `/audit-events/simulate-tamper?tamper_type=${tamperType}`,
+      { method: "POST" }
+    );
+  },
+
+  restoreAuditChain: () => {
+    return request<{ success: boolean; message: string; restored_records: number }>(
+      "/audit-events/restore-chain",
+      { method: "POST" }
+    );
+  },
 
   // Policies
   getPolicies: (params?: { category?: string; is_enabled?: boolean }) => {

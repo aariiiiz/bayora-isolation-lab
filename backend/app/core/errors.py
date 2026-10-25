@@ -17,7 +17,7 @@ class FileValidationError(BayoraException):
 
 class ParsingError(BayoraException):
     def __init__(self, message: str, details: dict = None):
-        super().__init__(message=message, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, details=details)
+        super().__init__(message=message, status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, details=details)
 
 class ResourceNotFoundError(BayoraException):
     def __init__(self, message: str = "Requested resource not found"):

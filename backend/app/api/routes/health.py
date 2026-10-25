@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from app.core.config import settings
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -13,6 +13,6 @@ def health_check():
         "status": "healthy",
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "ai_advisor_enabled": bool(settings.GROQ_API_KEY)
     }

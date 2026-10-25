@@ -191,3 +191,123 @@ def test_13_cross_tenant_parent_retest_linkage_is_rejected(client, analyst_heade
     }
     res = client.post("/api/experiments", data=data, files=files, headers=analyst_headers)
     assert res.status_code == 404
+
+def test_14_viewer_can_read_and_verify_audit_trail(client, viewer_headers):
+    # Auditor Viewer role must be allowed read-only access to audit events
+    res_list = client.get("/api/audit-events", headers=viewer_headers)
+    assert res_list.status_code == 200
+    assert "items" in res_list.json()
+
+    # Auditor Viewer can also invoke read-only cryptographic chain verification
+    res_verify = client.get("/api/audit-events/verify-chain", headers=viewer_headers)
+    assert res_verify.status_code == 200
+    assert "valid" in res_verify.json()
+
+def test_15_viewer_cannot_modify_or_delete_experiments(client, viewer_headers, analyst_headers, db_session):
+    exp = Experiment(name="Alpha Test Run", operation="isolation_access", tenant_id="tenant-alpha", artifact_filename="a.json", artifact_type="json", artifact_size_bytes=100)
+    db_session.add(exp)
+    db_session.commit()
+
+    # Viewer attempts modification
+    res_patch = client.patch(f"/api/experiments/{exp.id}", json={"name": "Hacked Name"}, headers=viewer_headers)
+    assert res_patch.status_code == 403
+    assert "Forbidden" in res_patch.json()["detail"]
+
+    # Viewer attempts deletion
+    res_del = client.delete(f"/api/experiments/{exp.id}", headers=viewer_headers)
+    assert res_del.status_code == 403
+    assert "Forbidden" in res_del.json()["detail"]
+
+def test_16_analyst_cannot_delete_experiment_admin_only(client, analyst_headers, db_session):
+    exp = Experiment(name="Alpha Critical Baseline", operation="isolation_access", tenant_id="tenant-alpha", artifact_filename="a.json", artifact_type="json", artifact_size_bytes=100)
+    db_session.add(exp)
+    db_session.commit()
+
+    # Security Analyst role cannot delete experiments (admin only)
+    res_del = client.delete(f"/api/experiments/{exp.id}", headers=analyst_headers)
+    assert res_del.status_code == 403
+    assert "Forbidden" in res_del.json()["detail"]
+
+def test_17_cross_tenant_admin_cannot_delete_another_tenant_experiment(client, admin_headers, beta_headers, db_session):
+    beta_exp = Experiment(name="Beta Defense Artifact", operation="isolation_access", tenant_id="tenant-beta", artifact_filename="beta.json", artifact_type="json", artifact_size_bytes=100)
+    db_session.add(beta_exp)
+    db_session.commit()
+
+    # Tenant Alpha admin attempts to delete Tenant Beta experiment
+    res_del = client.delete(f"/api/experiments/{beta_exp.id}", headers=admin_headers)
+    assert res_del.status_code == 404  # Non-disclosing 404
+
+    # Ensure Beta experiment is still intact
+    assert db_session.query(Experiment).filter(Experiment.id == beta_exp.id).first() is not None
+
+def test_18_authorized_admin_can_delete_experiment_with_audit_trail(client, admin_headers, db_session):
+    exp = Experiment(name="Disposable Alpha Run", operation="isolation_access", tenant_id="tenant-alpha", artifact_filename="a.json", artifact_type="json", artifact_size_bytes=100)
+    db_session.add(exp)
+    db_session.commit()
+
+    res_del = client.delete(f"/api/experiments/{exp.id}", headers=admin_headers)
+    assert res_del.status_code == 200
+    assert "permanently deleted" in res_del.json()["message"]
+
+    # Verify deleted from DB
+    assert db_session.query(Experiment).filter(Experiment.id == exp.id).first() is None
+
+    # Verify EXPERIMENT_DELETED event logged in audit trail
+    audit_res = client.get("/api/audit-events?event_type=EXPERIMENT_DELETED", headers=admin_headers)
+    assert audit_res.status_code == 200
+    events = audit_res.json()["items"]
+    assert any(e["experiment_id"] == exp.id for e in events)
+
+def test_19_retest_comparison_endpoint_computes_deltas(client, analyst_headers, db_session):
+    base_exp = Experiment(name="Baseline Run", operation="isolation_access", tenant_id="tenant-alpha", artifact_filename="base.json", artifact_type="json", artifact_size_bytes=100, risk_score=85.0, risk_level="HIGH")
+    db_session.add(base_exp)
+    db_session.commit()
+
+    f1 = Finding(experiment_id=base_exp.id, rule_id="ISO-001", title="Wildcard Tenant", severity="CRITICAL", description="d", evidence={}, remediation="r", detection_method="schema_rule")
+    f2 = Finding(experiment_id=base_exp.id, rule_id="ISO-002", title="Shared Session", severity="HIGH", description="d", evidence={}, remediation="r", detection_method="schema_rule")
+    db_session.add_all([f1, f2])
+
+    retest_exp = Experiment(name="Retest Run", operation="isolation_access", tenant_id="tenant-alpha", artifact_filename="fixed.json", artifact_type="json", artifact_size_bytes=100, risk_score=0.0, risk_level="CLEAN", parent_experiment_id=base_exp.id)
+    db_session.add(retest_exp)
+    db_session.commit()
+
+    res = client.get(f"/api/experiments/{retest_exp.id}/compare", headers=analyst_headers)
+    assert res.status_code == 200
+    comp_data = res.json()
+    assert comp_data["comparison"]["status"] == "IMPROVED"
+    assert comp_data["comparison"]["score_delta"] == 85.0
+    assert comp_data["comparison"]["resolved_count"] == 2
+    assert len(comp_data["comparison"]["resolved_findings"]) == 2
+
+def test_20_simulated_tamper_attack_and_restoration_lifecycle(client, analyst_headers):
+    # 1. Verify chain is currently intact
+    v1 = client.get("/api/audit-events/verify-chain", headers=analyst_headers)
+    assert v1.status_code == 200
+    assert v1.json()["valid"] is True
+
+    # 2. Simulate adversarial tamper attack
+    tamper_res = client.post("/api/audit-events/simulate-tamper?tamper_type=payload", headers=analyst_headers)
+    assert tamper_res.status_code == 200
+    assert tamper_res.json()["success"] is True
+
+    # 3. Chain verification detects tamper with rich evidence
+    v2 = client.get("/api/audit-events/verify-chain", headers=analyst_headers)
+    assert v2.status_code == 200
+    report = v2.json()
+    assert report["valid"] is False
+    assert report["break_detected"] is True
+    assert report["failure_category"] == "PAYLOAD_TAMPERED"
+    assert report["expected_hash"] is not None
+    assert report["calculated_hash"] is not None
+    assert "Integrity Failure" in report["message"]
+
+    # 4. Restore chain integrity
+    restore_res = client.post("/api/audit-events/restore-chain", headers=analyst_headers)
+    assert restore_res.status_code == 200
+    assert restore_res.json()["success"] is True
+
+    # 5. Chain verification passes again
+    v3 = client.get("/api/audit-events/verify-chain", headers=analyst_headers)
+    assert v3.status_code == 200
+    assert v3.json()["valid"] is True
+

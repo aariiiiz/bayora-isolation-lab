@@ -27,6 +27,8 @@ class AuditChainVerifyResponse(BaseModel):
     event_id: Optional[str] = None
     failure_category: Optional[str] = None
     reason: Optional[str] = None
+    expected_hash: Optional[str] = None
+    calculated_hash: Optional[str] = None
     verification_timestamp: Optional[str] = None
     checkpoint_status: Optional[Dict[str, Any]] = None
     message: str

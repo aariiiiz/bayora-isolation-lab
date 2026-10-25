@@ -96,6 +96,24 @@ limits:
   max_tokens: 250000
 logging:
   log_full_prompts: true"""
+    },
+    "config_safe": {
+        "filename": "hardened_cluster_config.yaml",
+        "operation": "config_risk",
+        "description": "Hardened evaluation cluster configuration with environment variable secret injection, 127.0.0.1 binding, and mandatory TLS.",
+        "content": """server:
+  host: 127.0.0.1
+  port: 8443
+  debug: false
+security:
+  api_key_env_var: "BAYORA_CLUSTER_KEY"
+  verify_ssl: true
+  allow_insecure_http: false
+  rate_limiting: true
+limits:
+  max_tokens: 4096
+logging:
+  log_full_prompts: false"""
     }
 }
 

@@ -90,15 +90,64 @@ export interface AuditVerificationReport {
   event_id?: string;
   failure_category?: string;
   reason?: string;
+  expected_hash?: string;
+  calculated_hash?: string;
   verification_timestamp?: string;
   checkpoint_status?: {
     verified: boolean;
     message?: string;
     expected_seq?: number;
     db_seq?: number;
+    checkpoint_hash?: string;
+    db_hash?: string;
   };
   message: string;
 }
+
+export interface RetestComparisonReport {
+  baseline: {
+    id: string;
+    name: string;
+    risk_score: number;
+    risk_level: RiskLevel;
+    total_findings: number;
+    created_at?: string;
+  };
+  retest: {
+    id: string;
+    name: string;
+    risk_score: number;
+    risk_level: RiskLevel;
+    total_findings: number;
+    created_at?: string;
+  };
+  comparison: {
+    score_delta: number;
+    status: "IMPROVED" | "REGRESSED" | "UNCHANGED";
+    resolved_count: number;
+    persistent_count: number;
+    new_count: number;
+    resolved_findings: Array<{
+      rule_id: string;
+      title: string;
+      severity: Severity;
+      remediation: string;
+    }>;
+    persistent_findings: Array<{
+      rule_id: string;
+      title: string;
+      severity: Severity;
+      evidence: Record<string, any>;
+    }>;
+    new_findings: Array<{
+      rule_id: string;
+      title: string;
+      severity: Severity;
+      evidence: Record<string, any>;
+    }>;
+  };
+}
+
 
 export interface DashboardSummary {
   total_experiments: number;

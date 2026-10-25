@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from app.core.config import settings
 
@@ -26,7 +26,7 @@ def generate_experiment_report(experiment_data: Dict[str, Any], findings_data: L
 
     report = {
         "report_id": f"REP-{experiment_data.get('id', 'unknown')[:8]}",
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "platform": settings.PROJECT_NAME,
         "platform_version": settings.VERSION,
         "experiment": {

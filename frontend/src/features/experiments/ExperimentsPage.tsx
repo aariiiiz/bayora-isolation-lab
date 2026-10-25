@@ -9,6 +9,7 @@ import { Badge } from "../../components/common/Badge";
 import { FindingCard } from "../../components/findings/FindingCard";
 import { RiskMeter } from "../../components/common/RiskMeter";
 import { formatBytes, formatDate } from "../../lib/utils";
+import { useAuth } from "../../context/AuthContext";
 import {
   FlaskConical,
   UploadCloud,
@@ -24,7 +25,11 @@ import {
   Cpu,
   Layers,
   ChevronRight,
-  HelpCircle
+  HelpCircle,
+  TrendingDown,
+  ShieldCheck,
+  CheckCircle,
+  FileSpreadsheet
 } from "lucide-react";
 
 const OPERATIONS = [
@@ -62,6 +67,7 @@ export const ExperimentsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { activeTenant } = useAuth();
 
   const isNew = searchParams.get("new") === "true";
   const runId = searchParams.get("runId");
@@ -92,11 +98,32 @@ export const ExperimentsPage: React.FC = () => {
     enabled: !!runId,
   });
 
+  // Retest Comparison Query
+  const { data: comparisonData, isLoading: loadingComparison } = useQuery({
+    queryKey: ["retest-comparison", runId, currentRun?.parent_experiment_id],
+    queryFn: () => api.getRetestComparison(runId!),
+    enabled: !!runId && !!currentRun?.parent_experiment_id,
+  });
+
+  // Delete Experiment Mutation (Admin only)
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteExperiment(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["experiments-list"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      setSearchParams({});
+    },
+    onError: (err: Error) => {
+      alert("Failed to delete experiment: " + err.message);
+    }
+  });
+
   // Fetch demo fixtures
   const { data: fixtures } = useQuery({
     queryKey: ["synthetic-fixtures"],
     queryFn: api.getSyntheticFixtures,
   });
+
 
   // Upload Mutation
   const uploadMutation = useMutation({
@@ -244,6 +271,23 @@ export const ExperimentsPage: React.FC = () => {
               <RotateCcw className="w-4 h-4 mr-2" />
               New Retest
             </Button>
+            {activeTenant?.role === "admin" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (confirm(`Permanently delete experiment run "${currentRun.name}"? This action cannot be undone.`)) {
+                    deleteMutation.mutate(currentRun.id);
+                  }
+                }}
+                isLoading={deleteMutation.isPending}
+                className="text-rose-600 border-rose-200 hover:bg-rose-50"
+                title="Delete run (Admin role only)"
+              >
+                <Trash2 className="w-4 h-4 mr-1.5" />
+                Delete
+              </Button>
+            )}
           </div>
         </div>
 
@@ -276,6 +320,165 @@ export const ExperimentsPage: React.FC = () => {
             </div>
           </div>
         </Card>
+
+        {/* Before-and-After Retest Comparison Section */}
+        {currentRun.parent_experiment_id && comparisonData && (
+          <Card className="border-purple-200 bg-gradient-to-br from-purple-50/40 via-white to-indigo-50/20 overflow-hidden shadow-sm">
+            <CardHeader className="bg-purple-50/60 border-b border-purple-100 py-3.5 px-6 flex flex-wrap items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-purple-100 text-purple-700">
+                  <RotateCcw className="w-4 h-4" />
+                </div>
+                <div>
+                  <CardTitle className="text-sm font-bold text-purple-950">
+                    Comparative Retest Verification & Remediation Delta
+                  </CardTitle>
+                  <p className="text-[11px] text-purple-700 font-medium">
+                    Ground-truth before-and-after evidence comparison against baseline run #{comparisonData.baseline.id.slice(0, 8)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                    comparisonData.comparison.status === "IMPROVED"
+                      ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                      : comparisonData.comparison.status === "REGRESSED"
+                      ? "bg-rose-100 text-rose-800 border-rose-300"
+                      : "bg-amber-100 text-amber-800 border-amber-300"
+                  }`}
+                >
+                  {comparisonData.comparison.status}
+                </span>
+                <span className="font-mono text-xs font-bold text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                  Δ Risk Score: {comparisonData.comparison.score_delta > 0 ? `-${comparisonData.comparison.score_delta}` : comparisonData.comparison.score_delta}
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="p-6 space-y-6">
+              {/* Baseline vs Retest Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-2xs">
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                    <span className="font-semibold uppercase tracking-wider text-slate-400">Baseline Evaluation (Before)</span>
+                    <Badge variant={comparisonData.baseline.risk_level} size="sm">
+                      {comparisonData.baseline.risk_level}
+                    </Badge>
+                  </div>
+                  <div className="font-heading font-bold text-sm text-slate-900 truncate">
+                    {comparisonData.baseline.name}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">Initial Risk Score:</span>
+                    <span className="font-bold font-mono text-rose-600 text-sm">
+                      {comparisonData.baseline.risk_score.toFixed(1)} / 100
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">Initial Findings:</span>
+                    <span className="font-semibold text-slate-800">
+                      {comparisonData.baseline.total_findings} vulnerabilities detected
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-white border border-purple-200 shadow-2xs">
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                    <span className="font-semibold uppercase tracking-wider text-purple-600">Retest Verification (After)</span>
+                    <Badge variant={comparisonData.retest.risk_level} size="sm">
+                      {comparisonData.retest.risk_level}
+                    </Badge>
+                  </div>
+                  <div className="font-heading font-bold text-sm text-slate-900 truncate">
+                    {comparisonData.retest.name}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">Post-Remediation Risk Score:</span>
+                    <span className="font-bold font-mono text-emerald-600 text-sm">
+                      {comparisonData.retest.risk_score.toFixed(1)} / 100
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">Remaining Findings:</span>
+                    <span className="font-semibold text-slate-800">
+                      {comparisonData.retest.total_findings} vulnerabilities remaining
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Remediated Findings List */}
+              {comparisonData.comparison.resolved_findings.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-900">
+                    <CheckCircle className="w-4 h-4 text-emerald-600" />
+                    <span>
+                      Remediated & Verified Resolved Findings ({comparisonData.comparison.resolved_count}):
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {comparisonData.comparison.resolved_findings.map((resItem, i) => (
+                      <div
+                        key={i}
+                        className="p-3 rounded-lg bg-emerald-50/60 border border-emerald-200 text-xs flex items-start justify-between gap-3"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-emerald-950">{resItem.rule_id}</span>
+                            <span className="text-emerald-900 font-medium">{resItem.title}</span>
+                            <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                              RESOLVED
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-emerald-800 mt-1 leading-relaxed">
+                            <strong>Remediation Applied:</strong> {resItem.remediation}
+                          </p>
+                        </div>
+                        <Badge variant={resItem.severity} size="sm">
+                          {resItem.severity}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Persistent Findings if any */}
+              {comparisonData.comparison.persistent_findings.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <span>
+                      Persistent Residual Risks Still Requiring Hardening ({comparisonData.comparison.persistent_count}):
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {comparisonData.comparison.persistent_findings.map((pItem, i) => (
+                      <div
+                        key={i}
+                        className="p-3 rounded-lg bg-amber-50/60 border border-amber-200 text-xs flex items-start justify-between gap-3"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-amber-950">{pItem.rule_id}</span>
+                            <span className="text-amber-900 font-medium">{pItem.title}</span>
+                            <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                              PERSISTENT
+                            </span>
+                          </div>
+                        </div>
+                        <Badge variant={pItem.severity} size="sm">
+                          {pItem.severity}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
 
         {/* AI Threat Advisory (Groq LLaMA 3.3 integration) */}
         {currentRun.ai_analysis ? (
@@ -415,27 +618,53 @@ export const ExperimentsPage: React.FC = () => {
         {step === 1 && (
           <div className="space-y-6">
             {parentExperimentId && (
-              <div className="p-3.5 bg-purple-50/90 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-center justify-between shadow-xs">
-                <div className="flex items-center gap-2.5">
-                  <RotateCcw className="w-4 h-4 text-purple-600 shrink-0" />
-                  <div>
-                    <span className="font-semibold text-purple-950">Comparative Retest Mode:</span>{" "}
-                    This validation run will be recorded with immutable parent linkage to baseline experiment{" "}
-                    <span className="font-mono font-bold bg-purple-100 px-1.5 py-0.5 rounded text-[11px] text-purple-800">
-                      {parentExperimentId}
-                    </span>
+              <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <RotateCcw className="w-4 h-4 text-purple-600 shrink-0" />
+                    <div>
+                      <span className="font-semibold text-purple-950">Comparative Retest Mode:</span>{" "}
+                      This validation run will be recorded with immutable parent linkage to baseline experiment{" "}
+                      <span className="font-mono font-bold bg-purple-100 px-1.5 py-0.5 rounded text-[11px] text-purple-800">
+                        {parentExperimentId}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setParentExperimentId(null);
+                      setSearchParams({ new: "true" });
+                    }}
+                    className="text-purple-600 hover:text-purple-900 underline text-xs font-medium ml-4 shrink-0"
+                  >
+                    Unlink baseline
+                  </button>
+                </div>
+                <div className="mt-3 pt-2.5 border-t border-purple-200 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] text-purple-800">
+                    Demonstrate before-and-after fix: Load the pre-verified hardened policy to resolve all findings.
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      type="button"
+                      onClick={() => handleLoadFixture("isolation_safe")}
+                      className="bg-purple-700 hover:bg-purple-800 text-white shadow-xs"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 mr-1" /> Load Hardened Policy (Remediated)
+                    </Button>
+                    <Button
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() => handleLoadFixture("config_safe")}
+                      className="border-purple-300 text-purple-800 hover:bg-purple-100"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 mr-1" /> Load Hardened Config
+                    </Button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setParentExperimentId(null);
-                    setSearchParams({ new: "true" });
-                  }}
-                  className="text-purple-600 hover:text-purple-900 underline text-xs font-medium ml-4 shrink-0"
-                >
-                  Unlink baseline
-                </button>
               </div>
             )}
             <Card className="p-8 border-dashed border-2 border-slate-300 hover:border-bayora-primary/60 transition-colors">
@@ -496,22 +725,39 @@ export const ExperimentsPage: React.FC = () => {
                 <Sparkles className="w-4 h-4 text-amber-500" />
                 <span>Instant Demo Fixtures (Click to load pre-verified sample):</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
                 <button
                   type="button"
                   onClick={() => handleLoadFixture("isolation_vulnerable")}
-                  className="p-2.5 rounded-lg border border-slate-200 bg-white hover:border-bayora-primary hover:bg-blue-50/30 text-left transition-all"
+                  className="p-2.5 rounded-lg border border-rose-200 bg-white hover:border-rose-400 hover:bg-rose-50/30 text-left transition-all"
                 >
-                  <div className="font-semibold text-slate-800">Vulnerable Multi-Tenant Policy (JSON)</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">Tests wildcard tenant, shared session, and impersonation.</div>
+                  <div className="font-semibold text-slate-800 flex items-center justify-between">
+                    <span>Vulnerable Policy</span>
+                    <span className="text-[10px] text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded">BEFORE</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Wildcard tenant, shared session, and impersonation.</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLoadFixture("isolation_safe")}
+                  className="p-2.5 rounded-lg border border-emerald-200 bg-white hover:border-emerald-400 hover:bg-emerald-50/30 text-left transition-all"
+                >
+                  <div className="font-semibold text-slate-800 flex items-center justify-between">
+                    <span>Hardened Policy</span>
+                    <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">AFTER / RETEST</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Strict tenant UUID, isolated session memory, explicit RBAC.</div>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleLoadFixture("audit_tampered")}
-                  className="p-2.5 rounded-lg border border-slate-200 bg-white hover:border-bayora-primary hover:bg-blue-50/30 text-left transition-all"
+                  className="p-2.5 rounded-lg border border-amber-200 bg-white hover:border-amber-400 hover:bg-amber-50/30 text-left transition-all"
                 >
-                  <div className="font-semibold text-slate-800">Tampered Audit Trail (JSON)</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">Tests broken hash chains and duplicate event IDs.</div>
+                  <div className="font-semibold text-slate-800 flex items-center justify-between">
+                    <span>Tampered Audit</span>
+                    <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-1.5 py-0.5 rounded">ATTACK</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Broken hash chains and duplicate event IDs.</div>
                 </button>
                 <button
                   type="button"
@@ -519,15 +765,29 @@ export const ExperimentsPage: React.FC = () => {
                   className="p-2.5 rounded-lg border border-slate-200 bg-white hover:border-bayora-primary hover:bg-blue-50/30 text-left transition-all"
                 >
                   <div className="font-semibold text-slate-800">Adversarial Prompts (JSONL)</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">Tests instruction override screening and jailbreak patterns.</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Instruction override and jailbreak patterns.</div>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleLoadFixture("config_risky")}
-                  className="p-2.5 rounded-lg border border-slate-200 bg-white hover:border-bayora-primary hover:bg-blue-50/30 text-left transition-all"
+                  className="p-2.5 rounded-lg border border-rose-200 bg-white hover:border-rose-400 hover:bg-rose-50/30 text-left transition-all"
                 >
-                  <div className="font-semibold text-slate-800">Risky Cluster Config (YAML)</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">Tests hardcoded API keys and unencrypted endpoints.</div>
+                  <div className="font-semibold text-slate-800 flex items-center justify-between">
+                    <span>Risky Cluster Config</span>
+                    <span className="text-[10px] text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded">BEFORE</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Hardcoded API keys and 0.0.0.0 binding.</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLoadFixture("config_safe")}
+                  className="p-2.5 rounded-lg border border-emerald-200 bg-white hover:border-emerald-400 hover:bg-emerald-50/30 text-left transition-all"
+                >
+                  <div className="font-semibold text-slate-800 flex items-center justify-between">
+                    <span>Hardened Cluster Config</span>
+                    <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">AFTER / RETEST</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Env var secrets, 127.0.0.1, mandatory TLS.</div>
                 </button>
               </div>
             </div>

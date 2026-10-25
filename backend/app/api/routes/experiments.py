@@ -10,7 +10,9 @@ from app.services.experiment_service import (
     create_and_run_experiment,
     get_experiments,
     get_experiment_by_id,
-    get_experiment_findings
+    get_experiment_findings,
+    update_experiment_metadata,
+    delete_experiment
 )
 from app.services.ai_advisor_service import generate_ai_threat_advisory
 from app.api.deps import require_role, TenantContext
@@ -146,3 +148,119 @@ async def request_ai_advisory(
     db.refresh(experiment)
 
     return {"experiment_id": run_id, "ai_analysis": advisory}
+
+@router.patch("/{run_id}", response_model=ExperimentResponse)
+def update_experiment(
+    run_id: str,
+    data: Dict[str, Any],
+    ctx: TenantContext = Depends(require_role(["admin", "analyst"])),
+    db: Session = Depends(get_db)
+):
+    """
+    Updates experiment metadata (name, description, environment, profile).
+    Restricted to Admin and Analyst roles within authorized tenant domain.
+    """
+    return update_experiment_metadata(
+        db=db,
+        experiment_id=run_id,
+        tenant_id=ctx.tenant_id,
+        data=data,
+        actor=ctx.user.email,
+        user_id=ctx.user_id
+    )
+
+@router.delete("/{run_id}", status_code=status.HTTP_200_OK)
+def delete_experiment_run(
+    run_id: str,
+    ctx: TenantContext = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db)
+):
+    """
+    Deletes an experiment run and associated findings.
+    Restricted to Administrator role. Prevents IDOR via tenant scoping.
+    """
+    delete_experiment(
+        db=db,
+        experiment_id=run_id,
+        tenant_id=ctx.tenant_id,
+        actor=ctx.user.email,
+        user_id=ctx.user_id
+    )
+    return {"success": True, "message": f"Experiment '{run_id}' permanently deleted."}
+
+@router.get("/{run_id}/compare", response_model=Dict[str, Any])
+def compare_with_baseline(
+    run_id: str,
+    baseline_id: Optional[str] = Query(None, description="Optional baseline ID if not linked via parent_experiment_id"),
+    ctx: TenantContext = Depends(require_role(["admin", "analyst", "viewer"])),
+    db: Session = Depends(get_db)
+):
+    """
+    Computes a forensic before-and-after comparison between a baseline experiment and retest.
+    Calculates resolved vulnerabilities, persistent risks, new issues, and risk score delta.
+    Enforces strict tenant scoping on both experiments.
+    """
+    current = get_experiment_by_id(db=db, experiment_id=run_id, tenant_id=ctx.tenant_id)
+    target_baseline_id = baseline_id or current.parent_experiment_id
+
+    if not target_baseline_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No parent baseline linked to this run. Please provide ?baseline_id parameter."
+        )
+
+    baseline = get_experiment_by_id(db=db, experiment_id=target_baseline_id, tenant_id=ctx.tenant_id)
+    baseline_findings = get_experiment_findings(db=db, experiment_id=target_baseline_id, tenant_id=ctx.tenant_id)
+    current_findings = get_experiment_findings(db=db, experiment_id=run_id, tenant_id=ctx.tenant_id)
+
+    baseline_rule_ids = {f.rule_id: f for f in baseline_findings}
+    current_rule_ids = {f.rule_id: f for f in current_findings}
+
+    resolved = [
+        {"rule_id": rid, "title": f.title, "severity": f.severity, "remediation": f.remediation}
+        for rid, f in baseline_rule_ids.items()
+        if rid not in current_rule_ids
+    ]
+    persistent = [
+        {"rule_id": rid, "title": f.title, "severity": f.severity, "evidence": f.evidence}
+        for rid, f in current_rule_ids.items()
+        if rid in baseline_rule_ids
+    ]
+    new_findings = [
+        {"rule_id": rid, "title": f.title, "severity": f.severity, "evidence": f.evidence}
+        for rid, f in current_rule_ids.items()
+        if rid not in baseline_rule_ids
+    ]
+
+    score_delta = round(baseline.risk_score - current.risk_score, 1)
+    status_assessment = "IMPROVED" if score_delta > 0 else ("REGRESSED" if score_delta < 0 else "UNCHANGED")
+
+    return {
+        "baseline": {
+            "id": baseline.id,
+            "name": baseline.name,
+            "risk_score": baseline.risk_score,
+            "risk_level": baseline.risk_level,
+            "total_findings": len(baseline_findings),
+            "created_at": baseline.created_at.isoformat() if baseline.created_at else None
+        },
+        "retest": {
+            "id": current.id,
+            "name": current.name,
+            "risk_score": current.risk_score,
+            "risk_level": current.risk_level,
+            "total_findings": len(current_findings),
+            "created_at": current.created_at.isoformat() if current.created_at else None
+        },
+        "comparison": {
+            "score_delta": score_delta,
+            "status": status_assessment,
+            "resolved_count": len(resolved),
+            "persistent_count": len(persistent),
+            "new_count": len(new_findings),
+            "resolved_findings": resolved,
+            "persistent_findings": persistent,
+            "new_findings": new_findings
+        }
+    }
+

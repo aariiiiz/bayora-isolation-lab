@@ -1,8 +1,7 @@
 import uuid
-from datetime import datetime
 from sqlalchemy import Column, String, Integer, Float, Text, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import relationship
-from app.db.session import Base
+from app.db.session import Base, utcnow
 
 class Experiment(Base):
     __tablename__ = "experiments"
@@ -30,9 +29,10 @@ class Experiment(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     parent_experiment_id = Column(String(36), ForeignKey("experiments.id", ondelete="SET NULL"), nullable=True, index=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     findings = relationship("Finding", back_populates="experiment", cascade="all, delete-orphan", order_by="Finding.severity")
     tenant = relationship("Tenant", back_populates="experiments")
     parent_experiment = relationship("Experiment", remote_side=[id], backref="retests")
+

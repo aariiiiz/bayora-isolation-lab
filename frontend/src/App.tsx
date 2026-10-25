@@ -8,6 +8,7 @@ import { AuditTrailPage } from "./features/audit/AuditTrailPage";
 import { SyntheticSandboxPage } from "./features/sandbox/SyntheticSandboxPage";
 import { PoliciesPage } from "./features/policies/PoliciesPage";
 import { ReportsPage } from "./features/reports/ReportsPage";
+import { SettingsPage } from "./features/settings/SettingsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,6 +35,7 @@ export const App: React.FC = () => {
               <Route path="sandbox" element={<SyntheticSandboxPage />} />
               <Route path="policies" element={<PoliciesPage />} />
               <Route path="reports" element={<ReportsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

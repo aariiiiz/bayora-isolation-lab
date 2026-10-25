@@ -26,23 +26,22 @@ def log_audit_event(
     details = details or {}
     ts = datetime.now(timezone.utc)
 
-    # Determine last event for sequential linkage
+    # Determine last event for sequential linkage strictly within tenant domain
     query = db.query(AuditEvent)
     if tenant_id:
-        # Check if tenant-scoped or global chain
         last_event = query.filter(AuditEvent.tenant_id == tenant_id).order_by(desc(AuditEvent.sequence_number)).first()
-        if not last_event:
-            # Fallback to last global event if tenant chain is starting
-            last_event = query.order_by(desc(AuditEvent.sequence_number)).first()
     else:
-        last_event = query.order_by(desc(AuditEvent.sequence_number)).first()
+        last_event = query.filter(AuditEvent.tenant_id.is_(None)).order_by(desc(AuditEvent.sequence_number)).first()
+        if not last_event:
+            last_event = query.order_by(desc(AuditEvent.sequence_number)).first()
 
     if not last_event:
-        # Also check by timestamp as fallback
-        last_event = query.order_by(desc(AuditEvent.timestamp)).first()
+        # Fallback check
+        last_event = query.filter(AuditEvent.tenant_id == tenant_id).order_by(desc(AuditEvent.timestamp)).first() if tenant_id else query.order_by(desc(AuditEvent.timestamp)).first()
 
     prev_hash = last_event.record_hash if last_event else "GENESIS"
     sequence_number = (last_event.sequence_number + 1) if (last_event and last_event.sequence_number) else 1
+
 
     record_hash = compute_record_hash(
         prev_hash=prev_hash,
@@ -104,10 +103,13 @@ def check_chain_integrity(db: Session, tenant_id: Optional[str] = None) -> Dict[
     """
     query = db.query(AuditEvent)
     if tenant_id:
-        # Check tenant events or global
-        events = query.filter((AuditEvent.tenant_id == tenant_id) | (AuditEvent.tenant_id.is_(None))).order_by(asc(AuditEvent.sequence_number), asc(AuditEvent.timestamp)).all()
+        events = query.filter(AuditEvent.tenant_id == tenant_id).order_by(asc(AuditEvent.sequence_number), asc(AuditEvent.timestamp)).all()
+        if not events:
+            # Check system events if tenant has no tenant-scoped activity yet
+            events = query.filter(AuditEvent.tenant_id.is_(None)).order_by(asc(AuditEvent.sequence_number), asc(AuditEvent.timestamp)).all()
     else:
         events = query.order_by(asc(AuditEvent.sequence_number), asc(AuditEvent.timestamp)).all()
 
     checkpoint = load_audit_checkpoint()
     return verify_audit_chain(events, checkpoint=checkpoint)
+
