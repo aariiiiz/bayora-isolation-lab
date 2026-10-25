@@ -29,8 +29,18 @@ ENV/
 env.bak/
 venv.bak/
 
-# Environment Variables
+# Environment Variables & Secrets
 .env
+.env.*
+*.env
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+*.zip
 
 # Node / Frontend
 node_modules/

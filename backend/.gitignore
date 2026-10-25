@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment Variables
+.env
+.env.*
+*.env
+!.env.example
+
+# Database
+*.db
+bayora.db
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Uploads
+uploads/
