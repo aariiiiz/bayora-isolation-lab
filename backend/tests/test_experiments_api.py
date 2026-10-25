@@ -1,6 +1,6 @@
 import io
 
-def test_create_and_run_experiment_flow(client):
+def test_create_and_run_experiment_flow(client, analyst_headers):
     file_content = b'''{
         "tenant_id": "*",
         "permissions": ["admin:*"],
@@ -16,7 +16,7 @@ def test_create_and_run_experiment_flow(client):
         "profile": "strict"
     }
 
-    response = client.post("/api/experiments", data=data, files=files)
+    response = client.post("/api/experiments", data=data, files=files, headers=analyst_headers)
     assert response.status_code == 201
     exp_data = response.json()
     run_id = exp_data["id"]
@@ -25,12 +25,12 @@ def test_create_and_run_experiment_flow(client):
     assert exp_data["summary"]["critical"] >= 2
 
     # Verify retrieval
-    detail_res = client.get(f"/api/experiments/{run_id}")
+    detail_res = client.get(f"/api/experiments/{run_id}", headers=analyst_headers)
     assert detail_res.status_code == 200
     assert len(detail_res.json()["findings"]) >= 2
 
     # Verify report export
-    report_res = client.get(f"/api/experiments/{run_id}/report")
+    report_res = client.get(f"/api/experiments/{run_id}/report", headers=analyst_headers)
     assert report_res.status_code == 200
     report_data = report_res.json()
     assert report_data["experiment"]["id"] == run_id

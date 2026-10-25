@@ -92,8 +92,10 @@ export const AuditTrailPage: React.FC = () => {
               </div>
               <p className="text-xs mt-0.5 opacity-90">{verificationResult.message}</p>
               {verificationResult.latest_hash && (
-                <div className="mt-1 font-mono text-[10px] opacity-80 truncate max-w-lg">
-                  Latest Block Anchor: {verificationResult.latest_hash}
+                <div className="mt-1 font-mono text-[10px] opacity-80 flex flex-wrap gap-4">
+                  <span>Sequence Check: #{verificationResult.latest_sequence ?? verificationResult.total_verified}</span>
+                  <span>Checkpoint Status: {verificationResult.checkpoint_status?.verified ? "Verified against external anchor" : "Local chain valid"}</span>
+                  <span className="truncate max-w-xs">Hash: {verificationResult.latest_hash}</span>
                 </div>
               )}
             </div>
@@ -120,6 +122,7 @@ export const AuditTrailPage: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
               <tr>
+                <th className="py-3 px-3">Seq #</th>
                 <th className="py-3 px-4">Timestamp (UTC)</th>
                 <th className="py-3 px-4">Event Type</th>
                 <th className="py-3 px-4">Actor</th>
@@ -131,21 +134,21 @@ export const AuditTrailPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400">
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
                     Loading audit trail ledger...
                   </td>
                 </tr>
               ) : events.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400">
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
                     No audit events recorded yet.
                   </td>
                 </tr>
               ) : (
                 events.map((evt) => (
                   <tr key={evt.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3 px-4 font-mono text-[11px] whitespace-nowrap text-slate-500">
-                      {formatDate(evt.timestamp)}
+                    <td className="py-3 px-3 font-mono font-bold text-[11px] text-slate-500">
+                      #{evt.sequence_number ?? 1}
                     </td>
                     <td className="py-3 px-4 font-medium text-slate-900 font-mono text-[11px]">
                       <span className="px-2 py-0.5 rounded bg-slate-100 border border-slate-200">

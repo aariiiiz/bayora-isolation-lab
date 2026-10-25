@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.db.models.experiment import Experiment
@@ -8,19 +8,31 @@ from app.db.models.audit import AuditEvent
 from app.engine.report_generator import generate_experiment_report
 from app.services.experiment_service import get_experiment_by_id, get_experiment_findings
 from app.services.audit_service import log_audit_event, check_chain_integrity
-from app.schemas.report import DashboardSummaryResponse
+from app.core.errors import ResourceNotFoundError
 
-def get_dashboard_summary(db: Session) -> Dict[str, Any]:
+def get_dashboard_summary(db: Session, tenant_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    Computes all statistics directly from the database.
+    Computes all statistics directly from the database, strictly scoped to the tenant domain.
     Never returns hardcoded or fabricated security metrics.
     """
-    total_experiments = db.query(Experiment).count()
-    total_findings = db.query(Finding).count()
-    
+    exp_query = db.query(Experiment)
+    if tenant_id:
+        exp_query = exp_query.filter(Experiment.tenant_id == tenant_id)
+
+    total_experiments = exp_query.count()
+
+    finding_query = db.query(Finding).join(Experiment, Finding.experiment_id == Experiment.id)
+    if tenant_id:
+        finding_query = finding_query.filter(Experiment.tenant_id == tenant_id)
+    total_findings = finding_query.count()
+
     # Findings by severity
     severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
-    severity_rows = db.query(Finding.severity, func.count(Finding.id)).group_by(Finding.severity).all()
+    sev_rows_query = db.query(Finding.severity, func.count(Finding.id)).join(Experiment, Finding.experiment_id == Experiment.id)
+    if tenant_id:
+        sev_rows_query = sev_rows_query.filter(Experiment.tenant_id == tenant_id)
+    severity_rows = sev_rows_query.group_by(Finding.severity).all()
+
     for sev, count in severity_rows:
         sev_upper = str(sev).upper()
         if sev_upper in severity_counts:
@@ -28,26 +40,40 @@ def get_dashboard_summary(db: Session) -> Dict[str, Any]:
 
     # Status counts
     status_counts = {"completed": 0, "running": 0, "failed": 0, "queued": 0}
-    status_rows = db.query(Experiment.status, func.count(Experiment.id)).group_by(Experiment.status).all()
+    st_rows_query = db.query(Experiment.status, func.count(Experiment.id))
+    if tenant_id:
+        st_rows_query = st_rows_query.filter(Experiment.tenant_id == tenant_id)
+    status_rows = st_rows_query.group_by(Experiment.status).all()
+
     for st, count in status_rows:
         if st in status_counts:
             status_counts[st] = count
 
     # Avg risk score
-    avg_score = db.query(func.avg(Experiment.risk_score)).filter(Experiment.status == "completed").scalar() or 0.0
+    avg_score_query = db.query(func.avg(Experiment.risk_score)).filter(Experiment.status == "completed")
+    if tenant_id:
+        avg_score_query = avg_score_query.filter(Experiment.tenant_id == tenant_id)
+    avg_score = avg_score_query.scalar() or 0.0
 
     # Recent experiments
-    recent_exp = db.query(Experiment).order_by(Experiment.created_at.desc()).limit(5).all()
+    recent_exp_query = db.query(Experiment)
+    if tenant_id:
+        recent_exp_query = recent_exp_query.filter(Experiment.tenant_id == tenant_id)
+    recent_exp = recent_exp_query.order_by(Experiment.created_at.desc()).limit(5).all()
 
     # Recent audit events
-    recent_audit = db.query(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(6).all()
+    recent_audit_query = db.query(AuditEvent)
+    if tenant_id:
+        recent_audit_query = recent_audit_query.filter((AuditEvent.tenant_id == tenant_id) | (AuditEvent.tenant_id.is_(None)))
+    recent_audit = recent_audit_query.order_by(AuditEvent.timestamp.desc()).limit(6).all()
+
     recent_audit_dicts = [
         {
             "id": a.id,
             "event_type": a.event_type,
             "experiment_id": a.experiment_id,
             "actor": a.actor,
-            "timestamp": a.timestamp.isoformat(),
+            "timestamp": a.timestamp.isoformat() if hasattr(a.timestamp, "isoformat") else str(a.timestamp),
             "record_hash": a.record_hash[:16] + "..." if a.record_hash else ""
         }
         for a in recent_audit
@@ -66,12 +92,17 @@ def get_dashboard_summary(db: Session) -> Dict[str, Any]:
         "active_policies_count": active_policies_count
     }
 
-def get_report_data(db: Session, experiment_id: str, actor: str = "analyst") -> Dict[str, Any]:
-    experiment = get_experiment_by_id(db, experiment_id)
-    findings = get_experiment_findings(db, experiment_id)
+def get_report_data(
+    db: Session,
+    experiment_id: str,
+    actor: str = "analyst",
+    tenant_id: Optional[str] = None
+) -> Dict[str, Any]:
+    experiment = get_experiment_by_id(db, experiment_id, tenant_id=tenant_id)
+    findings = get_experiment_findings(db, experiment_id, tenant_id=tenant_id)
 
     # Check audit chain validity
-    chain_check = check_chain_integrity(db)
+    chain_check = check_chain_integrity(db, tenant_id=tenant_id)
     chain_status = "CRYPTOGRAPHICALLY_VERIFIED" if chain_check.get("valid") else "TAMPER_BREAK_DETECTED"
 
     exp_dict = {
@@ -88,6 +119,8 @@ def get_report_data(db: Session, experiment_id: str, actor: str = "analyst") -> 
         "risk_level": experiment.risk_level,
         "summary": experiment.summary or {},
         "ai_analysis": experiment.ai_analysis,
+        "tenant_id": experiment.tenant_id,
+        "parent_experiment_id": getattr(experiment, "parent_experiment_id", None),
         "created_at": experiment.created_at,
         "updated_at": experiment.updated_at
     }
@@ -120,6 +153,7 @@ def get_report_data(db: Session, experiment_id: str, actor: str = "analyst") -> 
         event_type="REPORT_EXPORTED",
         actor=actor,
         experiment_id=experiment_id,
+        tenant_id=tenant_id or experiment.tenant_id,
         details={"report_id": report["report_id"], "findings_included": len(findings_list)}
     )
 

@@ -99,17 +99,28 @@ logging:
     }
 }
 
+from app.api.deps import get_tenant_context, TenantContext
+
 @router.post("/run", response_model=Dict[str, Any])
-def execute_synthetic_suite(db: Session = Depends(get_db)):
+def execute_synthetic_suite(
+    ctx: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
+):
     """
-    Executes the controlled local synthetic isolation test suite:
+    Executes the comprehensive 10-scenario local synthetic isolation matrix:
     - Verifies authorized in-tenant access
     - Rejects cross-tenant access attempts
     - Enforces session memory partition
-    - Denies unauthenticated & tampered requests
-    - Records tamper-evident audit events
+    - Denies unauthenticated, tampered, & expired credentials
+    - Enforces role boundaries and cross-tenant report blocking
+    - Executes authorized retesting
+    - Records cryptographically chained audit events
     """
-    report = run_synthetic_isolation_suite(db=db, actor="analyst")
+    report = run_synthetic_isolation_suite(
+        db=db,
+        actor=ctx.user.email,
+        caller_tenant_id=ctx.tenant_id
+    )
     return report
 
 @router.get("/fixtures")

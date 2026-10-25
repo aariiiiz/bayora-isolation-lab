@@ -76,6 +76,7 @@ export const ExperimentsPage: React.FC = () => {
   const [description, setDescription] = useState<string>("");
   const [enableAiAdvisor, setEnableAiAdvisor] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>("all");
+  const [parentExperimentId, setParentExperimentId] = useState<string | null>(searchParams.get("parentId") || null);
 
   // Fetch experiments list
   const { data: experimentsData, isLoading: loadingList } = useQuery({
@@ -109,6 +110,9 @@ export const ExperimentsPage: React.FC = () => {
       formData.append("profile", profile);
       formData.append("description", description);
       formData.append("enable_ai_advisor", String(enableAiAdvisor));
+      if (parentExperimentId) {
+        formData.append("parent_experiment_id", parentExperimentId);
+      }
 
       return api.createExperiment(formData);
     },
@@ -182,13 +186,35 @@ export const ExperimentsPage: React.FC = () => {
                   {currentRun.name}
                 </h1>
                 <Badge variant={currentRun.risk_level}>{currentRun.risk_level}</Badge>
+                {currentRun.parent_experiment_id && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-mono text-[10px] font-semibold border border-purple-200">
+                    <RotateCcw className="w-3 h-3" />
+                    RETEST
+                  </span>
+                )}
               </div>
-              <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+              <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
                 <span className="font-mono text-[11px] text-slate-400">ID: {currentRun.id}</span>
                 <span>•</span>
                 <span>{currentRun.artifact_filename} ({formatBytes(currentRun.artifact_size_bytes)})</span>
                 <span>•</span>
                 <span>{formatDate(currentRun.created_at)}</span>
+                {currentRun.parent_experiment_id && (
+                  <>
+                    <span>•</span>
+                    <span className="text-purple-700 font-medium">
+                      Retest of:{" "}
+                      <button
+                        type="button"
+                        onClick={() => setSearchParams({ runId: currentRun.parent_experiment_id })}
+                        className="font-mono underline hover:text-purple-900"
+                        title="View baseline run"
+                      >
+                        {currentRun.parent_experiment_id.slice(0, 8)}...
+                      </button>
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -205,7 +231,12 @@ export const ExperimentsPage: React.FC = () => {
             <Button
               size="sm"
               onClick={() => {
-                setSearchParams({ new: "true" });
+                setSearchParams({ new: "true", parentId: currentRun.id });
+                setParentExperimentId(currentRun.id);
+                setExperimentName(`Retest: ${currentRun.name}`);
+                setSelectedOperation(currentRun.operation);
+                setProfile(currentRun.profile);
+                setEnvironment(currentRun.environment);
                 setStep(1);
                 setSelectedFile(null);
               }}
@@ -383,6 +414,30 @@ export const ExperimentsPage: React.FC = () => {
         {/* STEP 1: Upload Artifact */}
         {step === 1 && (
           <div className="space-y-6">
+            {parentExperimentId && (
+              <div className="p-3.5 bg-purple-50/90 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-center justify-between shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <RotateCcw className="w-4 h-4 text-purple-600 shrink-0" />
+                  <div>
+                    <span className="font-semibold text-purple-950">Comparative Retest Mode:</span>{" "}
+                    This validation run will be recorded with immutable parent linkage to baseline experiment{" "}
+                    <span className="font-mono font-bold bg-purple-100 px-1.5 py-0.5 rounded text-[11px] text-purple-800">
+                      {parentExperimentId}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setParentExperimentId(null);
+                    setSearchParams({ new: "true" });
+                  }}
+                  className="text-purple-600 hover:text-purple-900 underline text-xs font-medium ml-4 shrink-0"
+                >
+                  Unlink baseline
+                </button>
+              </div>
+            )}
             <Card className="p-8 border-dashed border-2 border-slate-300 hover:border-bayora-primary/60 transition-colors">
               <div className="flex flex-col items-center justify-center text-center">
                 <UploadCloud className="w-12 h-12 text-bayora-primary/70 mb-3" />
@@ -727,6 +782,12 @@ export const ExperimentsPage: React.FC = () => {
                     <Badge variant={exp.risk_level} size="sm">
                       {exp.risk_level}
                     </Badge>
+                    {exp.parent_experiment_id && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-mono text-[10px] font-semibold border border-purple-200">
+                        <RotateCcw className="w-2.5 h-2.5" />
+                        RETEST
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
                     <span className="font-medium text-slate-700 capitalize">

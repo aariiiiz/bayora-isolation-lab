@@ -19,22 +19,26 @@ const queryClient = new QueryClient({
   },
 });
 
+import { AuthProvider } from "./context/AuthContext";
+
 export const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<OverviewPage />} />
-            <Route path="experiments" element={<ExperimentsPage />} />
-            <Route path="audit" element={<AuditTrailPage />} />
-            <Route path="sandbox" element={<SyntheticSandboxPage />} />
-            <Route path="policies" element={<PoliciesPage />} />
-            <Route path="reports" element={<ReportsPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<OverviewPage />} />
+              <Route path="experiments" element={<ExperimentsPage />} />
+              <Route path="audit" element={<AuditTrailPage />} />
+              <Route path="sandbox" element={<SyntheticSandboxPage />} />
+              <Route path="policies" element={<PoliciesPage />} />
+              <Route path="reports" element={<ReportsPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     </QueryClientProvider>
   );
 };

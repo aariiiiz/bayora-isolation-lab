@@ -38,11 +38,12 @@ class ExperimentResponse(BaseModel):
     summary: Dict[str, Any]
     error_message: Optional[str] = None
     ai_analysis: Optional[str] = None
+    tenant_id: str = "tenant-alpha"
+    parent_experiment_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class ExperimentDetailResponse(ExperimentResponse):
     findings: List[FindingResponse] = []

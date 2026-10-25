@@ -4,18 +4,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.errors import BayoraException, bayora_exception_handler, generic_exception_handler
 from app.db.session import engine, Base, SessionLocal
+from app.db.migrate import run_db_migrations
 from app.services.policy_service import seed_baseline_policies
-from app.api.routes import health, dashboard, experiments, audit, policies, reports, synthetic
+from app.cli.bootstrap import bootstrap_system
+from app.api.routes import health, auth, dashboard, experiments, audit, policies, reports, synthetic
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database tables
-    Base.metadata.create_all(bind=engine)
+    # Safe schema migration and table creation
+    run_db_migrations(engine)
     
-    # Seed baseline policies if needed
+    # Seed baseline policies and initialize bootstrap accounts
     db = SessionLocal()
     try:
         seed_baseline_policies(db)
+        bootstrap_system(db)
     finally:
         db.close()
     
@@ -43,6 +46,7 @@ app.add_exception_handler(Exception, generic_exception_handler)
 
 # Include API Routers
 app.include_router(health.router, prefix=settings.API_V1_STR)
+app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)
 app.include_router(experiments.router, prefix=settings.API_V1_STR)
 app.include_router(audit.router, prefix=settings.API_V1_STR)

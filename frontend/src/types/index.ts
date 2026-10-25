@@ -43,6 +43,8 @@ export interface Experiment {
   };
   error_message?: string;
   ai_analysis?: string;
+  tenant_id?: string;
+  parent_experiment_id?: string;
   created_at: string;
   updated_at: string;
   findings?: Finding[];
@@ -66,6 +68,9 @@ export interface Policy {
 
 export interface AuditEvent {
   id: string;
+  sequence_number?: number;
+  tenant_id?: string;
+  user_id?: string;
   event_type: string;
   experiment_id?: string;
   actor: string;
@@ -80,9 +85,18 @@ export interface AuditVerificationReport {
   break_detected: boolean;
   total_verified: number;
   latest_hash?: string;
+  latest_sequence?: number;
   broken_index?: number;
   event_id?: string;
+  failure_category?: string;
   reason?: string;
+  verification_timestamp?: string;
+  checkpoint_status?: {
+    verified: boolean;
+    message?: string;
+    expected_seq?: number;
+    db_seq?: number;
+  };
   message: string;
 }
 
@@ -102,4 +116,62 @@ export interface DashboardSummary {
     record_hash: string;
   }>;
   active_policies_count: number;
+}
+
+export interface TenantMembership {
+  tenant_id: string;
+  tenant_name: string;
+  role: "admin" | "analyst" | "viewer";
+}
+
+export interface ActiveTenant {
+  id: string;
+  name: string;
+  role: "admin" | "analyst" | "viewer";
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string;
+  is_active: boolean;
+  memberships: TenantMembership[];
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: UserProfile;
+  active_tenant: ActiveTenant;
+}
+
+export type TestExecutionStatus = "PASS" | "FAIL" | "ERROR" | "SKIPPED";
+
+export interface SyntheticScenarioResult {
+  test_id: string;
+  name: string;
+  expected_outcome: string;
+  actual_outcome: string;
+  status: TestExecutionStatus;
+  status_code: number;
+  message: string;
+  tenant_label: string;
+  target_label: string;
+  evidence: Record<string, any>;
+  execution_timestamp: string;
+  audit_event_id?: string;
+}
+
+export interface SyntheticMatrixReport {
+  executed_at: string;
+  fixture_version: string;
+  total_tests: number;
+  passed_tests: number;
+  failed_tests: number;
+  error_tests: number;
+  all_enforced: boolean;
+  results: SyntheticScenarioResult[];
+  scenarios?: SyntheticScenarioResult[];
+  audit_events_recorded: number;
+  security_boundary_notice: string;
 }

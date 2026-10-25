@@ -1,6 +1,6 @@
 import json
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, status
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, status, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -13,6 +13,7 @@ from app.services.experiment_service import (
     get_experiment_findings
 )
 from app.services.ai_advisor_service import generate_ai_threat_advisory
+from app.api.deps import require_role, TenantContext
 
 router = APIRouter(prefix="/experiments", tags=["Experiments"])
 
@@ -26,16 +27,22 @@ async def create_experiment_run(
     description: Optional[str] = Form(None),
     parameters: Optional[str] = Form("{}"),
     enable_ai_advisor: bool = Form(False),
+    parent_experiment_id: Optional[str] = Form(None),
+    ctx: TenantContext = Depends(require_role(["admin", "analyst"])),
     db: Session = Depends(get_db)
 ):
     """
     Step 1-4: Uploads artifact, validates type and size, executes selected security operation,
-    stores findings and audit trail, and returns execution results.
+    stores findings and audit trail scoped strictly to the authenticated caller's tenant.
     """
     try:
         parsed_params = json.loads(parameters) if parameters else {}
     except Exception:
         parsed_params = {}
+
+    # If retesting, verify parent belongs to this tenant
+    if parent_experiment_id:
+        get_experiment_by_id(db=db, experiment_id=parent_experiment_id, tenant_id=ctx.tenant_id)
 
     experiment = await create_and_run_experiment(
         db=db,
@@ -47,7 +54,10 @@ async def create_experiment_run(
         description=description,
         parameters=parsed_params,
         enable_ai_advisor=enable_ai_advisor,
-        actor="analyst"
+        actor=ctx.user.email,
+        tenant_id=ctx.tenant_id,
+        user_id=ctx.user_id,
+        parent_experiment_id=parent_experiment_id
     )
     return experiment
 
@@ -57,12 +67,21 @@ def list_experiments(
     offset: int = Query(0, ge=0),
     operation: Optional[str] = None,
     status: Optional[str] = None,
+    ctx: TenantContext = Depends(require_role(["admin", "analyst", "viewer"])),
     db: Session = Depends(get_db)
 ):
     """
-    Lists historical validation runs with pagination and filtering.
+    Lists historical validation runs with pagination and filtering, scoped strictly
+    to the authenticated caller's tenant domain.
     """
-    items, total = get_experiments(db=db, limit=limit, offset=offset, operation=operation, status=status)
+    items, total = get_experiments(
+        db=db,
+        limit=limit,
+        offset=offset,
+        operation=operation,
+        status=status,
+        tenant_id=ctx.tenant_id
+    )
     return {
         "items": items,
         "total": total,
@@ -71,32 +90,44 @@ def list_experiments(
     }
 
 @router.get("/{run_id}", response_model=ExperimentDetailResponse)
-def get_experiment_details(run_id: str, db: Session = Depends(get_db)):
+def get_experiment_details(
+    run_id: str,
+    ctx: TenantContext = Depends(require_role(["admin", "analyst", "viewer"])),
+    db: Session = Depends(get_db)
+):
     """
-    Retrieves full details of a specific experiment run including all findings.
+    Retrieves full details of a specific experiment run including all findings,
+    preventing IDOR by enforcing tenant ownership.
     """
-    experiment = get_experiment_by_id(db=db, experiment_id=run_id)
-    findings = get_experiment_findings(db=db, experiment_id=run_id)
+    experiment = get_experiment_by_id(db=db, experiment_id=run_id, tenant_id=ctx.tenant_id)
+    findings = get_experiment_findings(db=db, experiment_id=run_id, tenant_id=ctx.tenant_id)
     
-    # Construct response
     exp_data = ExperimentResponse.model_validate(experiment).model_dump()
     exp_data["findings"] = [FindingResponse.model_validate(f) for f in findings]
     return exp_data
 
 @router.get("/{run_id}/findings", response_model=List[FindingResponse])
-def get_findings_for_run(run_id: str, db: Session = Depends(get_db)):
+def get_findings_for_run(
+    run_id: str,
+    ctx: TenantContext = Depends(require_role(["admin", "analyst", "viewer"])),
+    db: Session = Depends(get_db)
+):
     """
-    Retrieves findings for a specific experiment run.
+    Retrieves findings for a specific experiment run within authorized tenant boundaries.
     """
-    return get_experiment_findings(db=db, experiment_id=run_id)
+    return get_experiment_findings(db=db, experiment_id=run_id, tenant_id=ctx.tenant_id)
 
 @router.post("/{run_id}/ai-advise")
-async def request_ai_advisory(run_id: str, db: Session = Depends(get_db)):
+async def request_ai_advisory(
+    run_id: str,
+    ctx: TenantContext = Depends(require_role(["admin", "analyst"])),
+    db: Session = Depends(get_db)
+):
     """
     Triggers on-demand Groq AI threat modeling and mitigation synthesis for an existing run.
     """
-    experiment = get_experiment_by_id(db=db, experiment_id=run_id)
-    findings = get_experiment_findings(db=db, experiment_id=run_id)
+    experiment = get_experiment_by_id(db=db, experiment_id=run_id, tenant_id=ctx.tenant_id)
+    findings = get_experiment_findings(db=db, experiment_id=run_id, tenant_id=ctx.tenant_id)
     findings_dicts = [
         {"severity": f.severity, "rule_id": f.rule_id, "title": f.title, "evidence": f.evidence}
         for f in findings

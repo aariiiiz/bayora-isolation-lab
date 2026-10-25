@@ -25,10 +25,11 @@ def test_synthetic_sandbox_logic():
     assert res4["status_code"] == 401
     assert res4["allowed"] is False
 
-def test_synthetic_api_suite_run(client):
-    response = client.post("/api/synthetic/run")
+def test_synthetic_api_suite_run(client, analyst_headers):
+    response = client.post("/api/synthetic/run", headers=analyst_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["all_enforced"] is True
-    assert data["total_scenarios"] == 5
-    assert data["passed_scenarios"] == 5
+    assert data["total_tests"] == 10
+    assert data["passed_tests"] == 10
+    assert data["audit_events_recorded"] == 10

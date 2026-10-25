@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -28,18 +28,21 @@ async def create_and_run_experiment(
     description: Optional[str] = None,
     parameters: Dict[str, Any] = None,
     enable_ai_advisor: bool = False,
-    actor: str = "analyst"
+    actor: str = "analyst",
+    tenant_id: str = "tenant-alpha",
+    user_id: Optional[str] = None,
+    parent_experiment_id: Optional[str] = None
 ) -> Experiment:
     """
     Complete end-to-end multi-step workflow:
     1. Read and validate uploaded file (strict mime, size, filename sanitize)
-    2. Persist experiment in 'queued' status
+    2. Persist experiment scoped to the caller's authorized tenant
     3. Safely parse artifact (never executes code)
     4. Fetch active policies from DB
     5. Execute deterministic security rule engine
     6. Persist findings to database
     7. Optionally call Groq AI advisor for threat modeling summary
-    8. Record audit events with SHA-256 hash chaining
+    8. Record audit events with SHA-256 hash chaining and tenant scoping
     """
     parameters = parameters or {}
     
@@ -70,7 +73,10 @@ async def create_and_run_experiment(
         status="running",
         risk_score=0.0,
         risk_level="PENDING",
-        summary={}
+        summary={},
+        tenant_id=tenant_id,
+        user_id=user_id,
+        parent_experiment_id=parent_experiment_id
     )
     db.add(experiment)
     db.commit()
@@ -80,12 +86,15 @@ async def create_and_run_experiment(
         event_type="EXPERIMENT_CREATED",
         actor=actor,
         experiment_id=exp_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
         details={
             "name": name,
             "operation": operation,
             "environment": environment,
             "filename": clean_filename,
-            "size_bytes": file_size
+            "size_bytes": file_size,
+            "parent_experiment_id": parent_experiment_id
         }
     )
 
@@ -94,6 +103,8 @@ async def create_and_run_experiment(
         event_type="FILE_VALIDATED",
         actor=actor,
         experiment_id=exp_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
         details={"filename": clean_filename, "artifact_type": artifact_type, "status": "PASSED"}
     )
 
@@ -102,6 +113,8 @@ async def create_and_run_experiment(
         event_type="ANALYSIS_STARTED",
         actor=actor,
         experiment_id=exp_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
         details={"operation": operation, "profile": profile}
     )
 
@@ -151,12 +164,13 @@ async def create_and_run_experiment(
             )
 
         # Update experiment status
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         experiment.status = "completed"
         experiment.risk_score = risk_score
         experiment.risk_level = risk_level
         experiment.summary = summary
         experiment.ai_analysis = ai_summary
-        experiment.updated_at = datetime.utcnow()
+        experiment.updated_at = now_utc
 
         db.commit()
         db.refresh(experiment)
@@ -166,6 +180,8 @@ async def create_and_run_experiment(
             event_type="ANALYSIS_COMPLETED",
             actor=actor,
             experiment_id=exp_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
             details={
                 "risk_score": risk_score,
                 "risk_level": risk_level,
@@ -180,7 +196,7 @@ async def create_and_run_experiment(
         db.rollback()
         experiment.status = "failed"
         experiment.error_message = str(e)
-        experiment.updated_at = datetime.utcnow()
+        experiment.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.commit()
 
         log_audit_event(
@@ -188,6 +204,8 @@ async def create_and_run_experiment(
             event_type="ANALYSIS_FAILED",
             actor=actor,
             experiment_id=exp_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
             details={"error": str(e)}
         )
         raise e
@@ -197,9 +215,12 @@ def get_experiments(
     limit: int = 50,
     offset: int = 0,
     operation: Optional[str] = None,
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    tenant_id: Optional[str] = None
 ) -> Tuple[List[Experiment], int]:
     query = db.query(Experiment)
+    if tenant_id:
+        query = query.filter(Experiment.tenant_id == tenant_id)
     if operation:
         query = query.filter(Experiment.operation == operation)
     if status:
@@ -209,12 +230,23 @@ def get_experiments(
     items = query.order_by(desc(Experiment.created_at)).offset(offset).limit(limit).all()
     return items, total
 
-def get_experiment_by_id(db: Session, experiment_id: str) -> Experiment:
-    exp = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+def get_experiment_by_id(
+    db: Session,
+    experiment_id: str,
+    tenant_id: Optional[str] = None
+) -> Experiment:
+    query = db.query(Experiment).filter(Experiment.id == experiment_id)
+    if tenant_id:
+        query = query.filter(Experiment.tenant_id == tenant_id)
+    exp = query.first()
     if not exp:
         raise ResourceNotFoundError(f"Experiment '{experiment_id}' was not found.")
     return exp
 
-def get_experiment_findings(db: Session, experiment_id: str) -> List[Finding]:
-    get_experiment_by_id(db, experiment_id)
+def get_experiment_findings(
+    db: Session,
+    experiment_id: str,
+    tenant_id: Optional[str] = None
+) -> List[Finding]:
+    get_experiment_by_id(db, experiment_id, tenant_id=tenant_id)
     return db.query(Finding).filter(Finding.experiment_id == experiment_id).order_by(Finding.severity).all()
